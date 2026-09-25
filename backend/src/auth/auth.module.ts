@@ -12,7 +12,9 @@ import { JwtStrategy } from './jwt.strategy';
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, JwtStrategy],
+  providers: [AuthService, JwtStrategy],  
+  // exports is used to make the AuthService available for other modules that import the AuthModule
   exports: [AuthService],
 })
+
 export class AuthModule {}
