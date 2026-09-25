@@ -8,10 +8,10 @@ export default async function Home(): Promise<React.ReactElement> {
     <>
       <section className="mb-10 max-w-2xl">
         <p className="mb-3 text-sm font-semibold uppercase tracking-[.18em] text-brand">
-          The independent publishing desk
+          Ideas, insights, and knowledge from across CrownStack
         </p>
-        <h1>Thoughtful stories, well told.</h1>
-        <p className="mt-4 text-lg text-slate-600">A home for ideas, notes, and perspectives.</p>
+        <h1>Ideas, insights, and everything in between.</h1>
+        <p className="mt-4 text-lg text-slate-600">A space for teams to share findings, best practices, technical insights, and ideas.</p>
       </section>
       {items.length === 0 ? (
         <div className="rounded-2xl border border-dashed bg-white p-10 text-center text-slate-500">

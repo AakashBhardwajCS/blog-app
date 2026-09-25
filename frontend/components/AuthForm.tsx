@@ -47,7 +47,7 @@ export function AuthForm({ mode }: { mode: 'login' | 'register' }): React.ReactE
       className="mx-auto max-w-md rounded-2xl border bg-white p-7 shadow-sm sm:p-9"
       onSubmit={submit}
     >
-      <p className="text-sm font-semibold uppercase tracking-[.15em] text-brand">goBlog</p>
+      <p className="text-sm font-semibold uppercase tracking-[.15em] text-brand">CrownStack Blog</p>
       <h1 className="mt-2 text-2xl">{mode === 'login' ? 'Welcome back' : 'Start writing'}</h1>
       <p className="mt-2 text-sm text-slate-600">
         {mode === 'login'

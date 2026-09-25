@@ -24,7 +24,7 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   const response = await fetch(`${base}${path}`, {
     ...init,
     headers: {
-      'Content-Type': 'application/json',
+      ...(init.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...init.headers,
     },
@@ -40,4 +40,25 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   }
 
   return response.json() as Promise<T>;
+}
+
+export async function uploadImage(file: File): Promise<{ url: string; key: string; mimeType: string; size: number }> {
+  const formData = new FormData();
+  formData.append('file', file);
+
+  const token = typeof window === 'undefined' ? null : localStorage.getItem('blog_token');
+  const response = await fetch(`${base}/assets/upload`, {
+    method: 'POST',
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    body: formData,
+  });
+
+  if (!response.ok) {
+    const body = (await response.json().catch(() => ({ message: 'Image upload failed' }))) as {
+      message?: string | string[];
+    };
+    throw new Error(Array.isArray(body.message) ? body.message.join(', ') : (body.message ?? 'Image upload failed'));
+  }
+
+  return response.json() as Promise<{ url: string; key: string; mimeType: string; size: number }>;
 }

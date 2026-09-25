@@ -9,6 +9,8 @@ export interface Post {
   slug: string;
   excerpt: string | null;
   content: string;
+  coverImage?: string | null;
+  imageAlt?: string | null;
   tags: string[];
   published: boolean;
   createdAt: string;
@@ -24,4 +26,18 @@ export interface Session {
 export interface PostPage {
   items: Post[];
   meta: { page: number; limit: number; total: number; pages: number };
+}
+
+export interface Comment {
+  id: string;
+  content: string;
+  createdAt: string;
+  user: Author;
+  replies: Comment[];
+}
+
+export interface Engagement {
+  likes: number;
+  liked: boolean;
+  comments: Comment[];
 }

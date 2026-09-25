@@ -1,5 +1,20 @@
 import { notFound } from 'next/navigation';
 import { getPost } from '../../../lib/api';
+import { PostEngagement } from '../../../components/PostEngagement';
+
+function renderContent(content: string): { __html: string } {
+  if (!content.trim()) return { __html: '' };
+  if (/<[a-z][\s\S]*>/i.test(content)) {
+    return { __html: content };
+  }
+
+  const paragraphs = content
+    .split(/\n\s*\n/)
+    .map((paragraph) => `<p>${paragraph.trim().replace(/\n/g, '<br />')}</p>`)
+    .join('');
+
+  return { __html: paragraphs };
+}
 
 export default async function PostPage({
   params,
@@ -24,9 +39,11 @@ export default async function PostPage({
             </span>
           ))}
         </div>
-        <p className="mt-8 whitespace-pre-wrap text-[1.05rem] leading-8 text-slate-700">
-          {post.content}
-        </p>
+        <div
+          className="mt-8 text-[1.05rem] leading-8 text-slate-700 [&_p]:mb-4 [&_img]:my-6 [&_img]:mx-auto [&_img]:max-w-full [&_img]:rounded-2xl [&_figure]:my-6 [&_figure]:text-center [&_figcaption]:mt-2 [&_figcaption]:text-xs [&_figcaption]:text-slate-500"
+          dangerouslySetInnerHTML={renderContent(post.content)}
+        />
+        <PostEngagement slug={post.slug} />
       </article>
     );
   } catch {
