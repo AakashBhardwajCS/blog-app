@@ -20,7 +20,7 @@ export interface Post {
 
 export interface Session {
   token: string;
-  user: { id: string; email: string; name: string };
+  user: { id: string; email: string; name: string; tenantId: string };
 }
 
 export interface PostPage {
