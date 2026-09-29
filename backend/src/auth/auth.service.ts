@@ -1,4 +1,4 @@
-import { ConflictException, Injectable, UnauthorizedException } from '@nestjs/common';
+import { ConflictException, Injectable, Logger, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../prisma/prisma.service';
@@ -8,10 +8,14 @@ type PublicUser = { id: string; email: string; name: string; tenantId: string };
 
 @Injectable()
 export class AuthService {
+
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly jwt: JwtService,
   ) {}
+  
 
   private slugify(value: string): string {
     return value
@@ -30,7 +34,7 @@ export class AuthService {
   }
 
   async register(dto: RegisterDto): Promise<{ token: string; user: PublicUser }> {
-    
+
     const email = dto.email.toLowerCase();
     const tenantSlug = (dto.tenantSlug ?? this.slugify(dto.tenantName ?? dto.name)).toLowerCase();
 
@@ -60,15 +64,22 @@ export class AuthService {
   }
 
   async login(dto: LoginDto): Promise<{ token: string; user: PublicUser }> {
+
+    this.logger.log('LOGIN METHOD HIT');
+      
     const email = dto.email.toLowerCase();
+
     const tenantSlug = dto.tenantSlug ? dto.tenantSlug.toLowerCase() : undefined;
 
     let tenantId: string | undefined;
+
     if (tenantSlug) {
       const tenant = await this.prisma.tenant.findUnique({ where: { slug: tenantSlug }, select: { id: true } });
       if (!tenant) throw new UnauthorizedException('Tenant was not found');
       tenantId = tenant.id;
     }
+
+    this.logger.log("started prisma find")
 
     const matches = await this.prisma.user.findMany({
       where: { email, ...(tenantId ? { tenantId } : {}) },
