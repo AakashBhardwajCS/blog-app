@@ -8,11 +8,11 @@ import {
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { JwtAuthGuard } from '../auth/guards';
-import { MinioService } from '../storage/minio.service';
+import { SeaweedService } from '../storage/seaweed.service';
 
 @Controller('assets')
 export class UploadsController {
-  constructor(private readonly minio: MinioService) {}
+  constructor(private readonly seaweed: SeaweedService) {}
 
   @UseGuards(JwtAuthGuard)
   @Post('upload')
@@ -22,6 +22,6 @@ export class UploadsController {
       throw new BadRequestException('A file is required');
     }
 
-    return this.minio.uploadFile(file, 'posts');
+    return this.seaweed.uploadFile(file, 'posts');
   }
 }
