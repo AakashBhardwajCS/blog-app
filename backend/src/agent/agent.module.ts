@@ -11,4 +11,5 @@ import { McpBridgeController } from './mcp-bridge.controller';
   controllers: [AgentController, McpBridgeController],
   providers: [AgentService, McpClientService, BlogToolsService],
 })
+
 export class AgentModule {}

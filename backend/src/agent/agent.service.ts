@@ -44,6 +44,7 @@ export class AgentService {
     const model = process.env.LOCAL_LLM_MODEL ?? 'llama3.1:8b';
     const shouldUseTools = Boolean(requestedTool) || this.shouldUseTools(message);
     const shouldWriteBlog = this.shouldWriteBlog(message);
+    
     this.logger.log(`Agent request for user ${userId} in tenant ${tenantId}; tools=${shouldUseTools ? 'enabled' : 'disabled'}${requestedTool ? `; selected=${requestedTool}` : ''}`);
     const discoveredTools = shouldUseTools ? (await this.mcp.listTools(userId, tenantId)).tools : [];
     const remoteTools = requestedTool
