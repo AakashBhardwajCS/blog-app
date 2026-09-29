@@ -60,7 +60,7 @@ export function RagAssistant(): React.ReactElement {
           <header className="flex items-center justify-between bg-slate-950 px-5 py-4 text-white">
             <div className="flex items-center gap-3">
               <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-brand"><Sparkles size={17} /></span>
-              <div><p className="font-semibold">Knowledge assistant</p><p className="text-xs text-slate-300">Search the published blog</p></div>
+              <div><p className="font-semibold">Knowledge assistant</p><p className="text-xs text-slate-300">Search the published blogs and articles</p></div>
             </div>
             <button aria-label="Close assistant" className="rounded-lg p-2 text-slate-300 hover:bg-white/10 hover:text-white" onClick={() => setOpen(false)} type="button"><X size={18} /></button>
           </header>
@@ -96,7 +96,7 @@ export function RagAssistant(): React.ReactElement {
         </section>
       )}
       <button aria-expanded={open} aria-label={open ? 'Close knowledge assistant' : 'Open knowledge assistant'} className="fixed bottom-5 right-5 z-50 flex items-center gap-2 rounded-full bg-slate-950 px-4 py-3 text-sm font-semibold text-white shadow-xl shadow-slate-900/20 transition hover:-translate-y-0.5 hover:bg-brand sm:right-7" onClick={() => setOpen((current) => !current)} type="button">
-        {open ? <ChevronDown size={18} /> : <Sparkles size={18} />}<span className="hidden sm:inline">Ask CrownStack</span>
+        {open ? <ChevronDown size={18} /> : <Sparkles size={18} />}<span className="hidden sm:inline">Ask CrownStack AI</span>
       </button>
     </>
   );
