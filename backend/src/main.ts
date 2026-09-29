@@ -9,7 +9,7 @@ async function bootstrap(): Promise<void> {
   const logger = new Logger('Bootstrap');
   
   // this creates the application instance
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create(AppModule)
 
   // used to route route all requests with a specific prefix
   app.setGlobalPrefix('api');
@@ -20,7 +20,7 @@ async function bootstrap(): Promise<void> {
     // Reflect local origins during development. In production, only use the explicit allow-list.
     origin: process.env.NODE_ENV === 'production' ? productionOrigins : true,
     methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'x-user-id'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'x-user-id', 'x-tenant-id'],
   });
 
   app.useGlobalPipes(
