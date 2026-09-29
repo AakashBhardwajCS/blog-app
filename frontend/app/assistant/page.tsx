@@ -22,8 +22,12 @@ export default function AssistantPage(): React.ReactElement {
   const [toolResult, setToolResult] = useState('');
 
   useEffect(() => {
-    if (!localStorage.getItem('blog_token')) window.location.href = '/login';
-    else void loadTools();
+    if (!localStorage.getItem('blog_token')) {
+      window.location.href = '/login';
+      return;
+    }
+
+    void loadTools();
   }, []);
 
   async function loadTools(): Promise<void> {

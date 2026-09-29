@@ -21,10 +21,20 @@ export default function Dashboard(): React.ReactElement {
   const [uploading, setUploading] = useState(false);
 
   const load = async (): Promise<void> => {
+    const token = typeof window === 'undefined' ? null : localStorage.getItem('blog_token');
+    if (!token) {
+      location.href = '/login';
+      return;
+    }
+
     try {
       setPosts(await api<Post[]>('/posts/mine/list'));
-    } catch {
-      location.href = '/login';
+    } catch (cause: unknown) {
+      if (!localStorage.getItem('blog_token')) {
+        location.href = '/login';
+        return;
+      }
+      setError(cause instanceof Error ? cause.message : 'Could not load your posts');
     }
   };
 
@@ -119,7 +129,7 @@ export default function Dashboard(): React.ReactElement {
           </p>
           <h1 className="mt-2">Your writing</h1>
           <p className="mt-2 text-slate-600">
-            Create drafts, publish stories, and keep your work organized.
+            Create drafts, publish articles, and keep your work organized.
           </p>
         </div>
         <form className="rounded-2xl border bg-white p-6 shadow-sm" onSubmit={save}>
