@@ -16,8 +16,13 @@ export const CurrentUser = createParamDecorator(
 
 export const CurrentTenant = createParamDecorator(
   (_data: unknown, context: ExecutionContext): string => {
-    const request = context.switchToHttp().getRequest<{ user?: JwtPayload; tenantId?: string }>();
-    const tenantId = request.user?.tenantId ?? request.tenantId;
+    const request = context.switchToHttp().getRequest<{
+      user?: JwtPayload;
+      tenantId?: string;
+      headers?: Record<string, string | string[] | undefined>;
+    }>();
+    const headerTenantId = request.headers?.['x-tenant-id'];
+    const tenantId = request.user?.tenantId ?? request.tenantId ?? (Array.isArray(headerTenantId) ? headerTenantId[0] : headerTenantId);
     if (!tenantId) throw new UnauthorizedException('Missing tenant context');
     return tenantId;
   },
