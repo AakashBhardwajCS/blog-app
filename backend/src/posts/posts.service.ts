@@ -42,6 +42,17 @@ export class PostsService {
     }
   }
 
+  private async assertAuthorInTenant(authorId: string, tenantId: string): Promise<void> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: authorId },
+      select: { tenantId: true },
+    });
+
+    if (!user || user.tenantId !== tenantId) {
+      throw new ForbiddenException('User does not belong to this tenant');
+    }
+  }
+
   async list(query: ListPostsDto, tenantId?: string) {
     const currentTenantId = tenantId ? this.tenantIdFor(tenantId) : undefined;
     const where: Prisma.PostWhereInput = currentTenantId
@@ -81,12 +92,15 @@ export class PostsService {
   }
 
   async mine(authorId: string, tenantId?: string) {
+
     const currentTenantId = this.tenantIdFor(tenantId);
+
     return this.prisma.post.findMany({
       where: this.prisma.tenantWhere({ authorId }, currentTenantId),
       include: postInclude,
       orderBy: { updatedAt: 'desc' },
     });
+    
   }
 
   async findMine(id: string, authorId: string, tenantId?: string) {
@@ -101,6 +115,7 @@ export class PostsService {
 
   async create(authorId: string, dto: CreatePostDto, tenantId?: string) {
     const currentTenantId = this.tenantIdFor(tenantId);
+    await this.assertAuthorInTenant(authorId, currentTenantId);
     return this.prisma.post.create({
       data: this.prisma.tenantData(
         {
@@ -117,6 +132,7 @@ export class PostsService {
 
   async update(id: string, authorId: string, dto: UpdatePostDto, tenantId?: string) {
     const currentTenantId = this.tenantIdFor(tenantId);
+    await this.assertAuthorInTenant(authorId, currentTenantId);
     const post = await this.prisma.post.findUnique({
       where: this.prisma.tenantWhere({ id }, currentTenantId),
     });
@@ -137,8 +153,8 @@ export class PostsService {
   }
 
   async remove(id: string, authorId: string, tenantId?: string): Promise<void> {
-
     const currentTenantId = this.tenantIdFor(tenantId);
+    await this.assertAuthorInTenant(authorId, currentTenantId);
 
     const post = await this.prisma.post.findUnique({
       where: this.prisma.tenantWhere({ id }, currentTenantId),
@@ -146,10 +162,8 @@ export class PostsService {
     });
 
     if (!post) throw new NotFoundException('Post not found');
-    
-    if (post.authorId !== authorId)
 
-      throw new ForbiddenException('You can only delete your own posts');
+    if (post.authorId !== authorId) throw new ForbiddenException('You can only delete your own posts');
 
     await this.prisma.post.delete({ where: this.prisma.tenantWhere({ id }, currentTenantId) });
   }
