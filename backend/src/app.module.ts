@@ -4,10 +4,11 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { AuthModule } from './auth/auth.module';
 import { AgentModule } from './agent/agent.module';
+import { OrganizationModule } from './organization/organization.module';
 import { PostsModule } from './posts/posts.module';
 import { PrismaModule } from './prisma/prisma.module';
+import { ProfileModule } from './profile/profile.module';
 import { RagModule } from './rag/rag.module';
-import { TenantModule } from './tenant/tenant.module';
 import { UploadsModule } from './uploads/uploads.module';
 
 const envFilePath = [
@@ -24,12 +25,13 @@ const envFilePath = [
       envFilePath: envFilePath.length ? envFilePath : ['.env', './backend/.env'],
     }),
     PrismaModule,
-    TenantModule,
     AuthModule,
     PostsModule,
     AgentModule,
     RagModule,
     UploadsModule,
+    ProfileModule,
+    OrganizationModule,
   ],
 })
 
