@@ -20,7 +20,7 @@ async function bootstrap(): Promise<void> {
     // Reflect local origins during development. In production, only use the explicit allow-list.
     origin: process.env.NODE_ENV === 'production' ? productionOrigins : true,
     methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'x-user-id', 'x-tenant-id'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
   });
 
   app.useGlobalPipes(
