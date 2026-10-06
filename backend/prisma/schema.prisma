@@ -7,6 +7,23 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+/// Company departments. Every user belongs to exactly one, and every post is filed under one.
+enum Department {
+  ENGINEERING
+  SALES
+  DATA
+  FINANCE
+  DELIVERY
+  MANAGEMENT
+}
+
+/// What a user may do inside their organization (separate from their free-text job title).
+enum OrgRole {
+  OWNER
+  ADMIN
+  MEMBER
+}
+
 model Tenant {
   id        String    @id @default(cuid())
   name      String
@@ -17,28 +34,37 @@ model Tenant {
   posts     Post[]
   likes     Like[]
   comments  Comment[]
-
-  @@index([slug])
+  invites   Invite[]
 }
 
 model User {
-  id        String    @id @default(cuid())
-  tenantId  String
-  email     String
-  name      String
-  password  String
-  createdAt DateTime  @default(now())
-  tenant    Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  posts     Post[]
-  likes     Like[]
-  comments  Comment[]
+  id            String     @id @default(cuid())
+  tenantId      String
+  email         String
+  name          String
+  password      String
+  department    Department
+  /// Free-text job title, e.g. "Engineer" or "Sales Associate".
+  role          String
+  /// Public URL of the profile picture in object storage (SeaweedFS), if one was uploaded.
+  avatarUrl     String?
+  orgRole       OrgRole    @default(MEMBER)
+  /// Set when an admin removes the user from the organization. They can no longer sign in; their content stays.
+  deactivatedAt DateTime?
+  createdAt     DateTime   @default(now())
+  tenant        Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  posts         Post[]
+  likes         Like[]
+  comments      Comment[]
+  invites       Invite[]
 
   @@unique([tenantId, email])
   @@index([tenantId])
+  @@index([tenantId, department])
 }
 
 model Post {
-  id         String   @id @default(cuid())
+  id         String     @id @default(cuid())
   tenantId   String
   title      String
   slug       String
@@ -46,19 +72,20 @@ model Post {
   content    String
   coverImage String?
   imageAlt   String?
-  tags       String[] @default([])
-  published  Boolean  @default(false)
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  department Department
+  published  Boolean    @default(false)
+  createdAt  DateTime   @default(now())
+  updatedAt  DateTime   @updatedAt
   authorId   String
-  tenant     Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  author     User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  tenant     Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  author     User       @relation(fields: [authorId], references: [id], onDelete: Cascade)
   likes      Like[]
   comments   Comment[]
 
   @@unique([tenantId, slug])
   @@index([tenantId, published, createdAt])
   @@index([tenantId, authorId])
+  @@index([tenantId, published, department])
 }
 
 model Like {
@@ -91,4 +118,25 @@ model Comment {
 
   @@index([tenantId, postId, createdAt])
   @@index([tenantId, parentId])
+}
+
+/// A code that lets someone register into an existing organization with a preset role.
+model Invite {
+  id          String    @id @default(cuid())
+  tenantId    String
+  code        String    @unique
+  role        OrgRole   @default(MEMBER)
+  /// When set, only this email address can use the invite.
+  email       String?
+  /// Null means unlimited uses until it expires or is revoked.
+  maxUses     Int?
+  uses        Int       @default(0)
+  expiresAt   DateTime
+  revokedAt   DateTime?
+  createdById String
+  createdAt   DateTime  @default(now())
+  tenant      Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  createdBy   User      @relation(fields: [createdById], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, createdAt])
 }
