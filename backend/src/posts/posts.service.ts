@@ -1,5 +1,7 @@
 import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { Department, Prisma } from '@prisma/client';
+import { isOrgAdmin } from '../auth/guards';
+import { JwtPayload } from '../auth/jwt.strategy';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreatePostDto, ListPostsDto, UpdatePostDto } from './dto';
 
@@ -12,10 +14,6 @@ export class PostsService {
 
   private tenantIdFor(tenantId?: string): string {
     return this.prisma.requireTenant(tenantId);
-  }
-
-  private publicPostWhere(where: Prisma.PostWhereInput = {}): Prisma.PostWhereInput {
-    return { ...where, published: true };
   }
 
   private slugify(title: string): string {
@@ -42,28 +40,27 @@ export class PostsService {
     }
   }
 
-  private async assertAuthorInTenant(authorId: string, tenantId: string): Promise<void> {
+  /**
+   * Verifies the user is an active member of the tenant. Returns their department, which every
+   * new post is locked to, and whether they are an owner or admin (who may moderate any post).
+   */
+  private async assertAuthorInTenant(authorId: string, tenantId: string): Promise<{ department: Department; isAdmin: boolean }> {
     const user = await this.prisma.user.findUnique({
       where: { id: authorId },
-      select: { tenantId: true },
+      select: { tenantId: true, department: true, orgRole: true, deactivatedAt: true },
     });
 
-    if (!user || user.tenantId !== tenantId) {
+    if (!user || user.tenantId !== tenantId || user.deactivatedAt) {
       throw new ForbiddenException('User does not belong to this tenant');
     }
+    return { department: user.department, isAdmin: isOrgAdmin(user.orgRole) };
   }
 
-  async list(query: ListPostsDto, tenantId?: string) {
-    const currentTenantId = tenantId ? this.tenantIdFor(tenantId) : undefined;
-    const where: Prisma.PostWhereInput = currentTenantId
-      ? this.prisma.tenantWhere(
-          {
-            published: true,
-            ...(query.tag ? { tags: { has: query.tag } } : {}),
-          },
-          currentTenantId,
-        )
-      : this.publicPostWhere({ ...(query.tag ? { tags: { has: query.tag } } : {}) });
+  async list(query: ListPostsDto, tenantId: string) {
+    const where: Prisma.PostWhereInput = this.prisma.tenantWhere(
+      { published: true, ...(query.department ? { department: query.department } : {}) },
+      this.tenantIdFor(tenantId),
+    );
 
     const [items, total] = await this.prisma.$transaction([
       this.prisma.post.findMany({
@@ -81,10 +78,9 @@ export class PostsService {
     };
   }
 
-  async findBySlug(slug: string, tenantId?: string) {
-    const currentTenantId = tenantId ? this.tenantIdFor(tenantId) : undefined;
+  async findBySlug(slug: string, tenantId: string) {
     const post = await this.prisma.post.findFirst({
-      where: currentTenantId ? this.prisma.tenantWhere({ slug, published: true }, currentTenantId) : this.publicPostWhere({ slug }),
+      where: this.prisma.tenantWhere({ slug, published: true }, this.tenantIdFor(tenantId)),
       include: postInclude,
     });
     if (!post) throw new NotFoundException('Post not found');
@@ -115,14 +111,14 @@ export class PostsService {
 
   async create(authorId: string, dto: CreatePostDto, tenantId?: string) {
     const currentTenantId = this.tenantIdFor(tenantId);
-    await this.assertAuthorInTenant(authorId, currentTenantId);
+    const author = await this.assertAuthorInTenant(authorId, currentTenantId);
     return this.prisma.post.create({
       data: this.prisma.tenantData(
         {
           ...dto,
           slug: await this.uniqueSlug(dto.title, currentTenantId),
           authorId,
-          tags: dto.tags ?? [],
+          department: author.department,
         },
         currentTenantId,
       ),
@@ -132,12 +128,12 @@ export class PostsService {
 
   async update(id: string, authorId: string, dto: UpdatePostDto, tenantId?: string) {
     const currentTenantId = this.tenantIdFor(tenantId);
-    await this.assertAuthorInTenant(authorId, currentTenantId);
+    const { isAdmin } = await this.assertAuthorInTenant(authorId, currentTenantId);
     const post = await this.prisma.post.findUnique({
       where: this.prisma.tenantWhere({ id }, currentTenantId),
     });
     if (!post) throw new NotFoundException('Post not found');
-    if (post.authorId !== authorId)
+    if (post.authorId !== authorId && !isAdmin)
       throw new ForbiddenException('You can only edit your own posts');
     const slug = dto.title ? await this.uniqueSlug(dto.title, currentTenantId, id) : undefined;
     return this.prisma.post.update({
@@ -154,7 +150,7 @@ export class PostsService {
 
   async remove(id: string, authorId: string, tenantId?: string): Promise<void> {
     const currentTenantId = this.tenantIdFor(tenantId);
-    await this.assertAuthorInTenant(authorId, currentTenantId);
+    const { isAdmin } = await this.assertAuthorInTenant(authorId, currentTenantId);
 
     const post = await this.prisma.post.findUnique({
       where: this.prisma.tenantWhere({ id }, currentTenantId),
@@ -163,18 +159,18 @@ export class PostsService {
 
     if (!post) throw new NotFoundException('Post not found');
 
-    if (post.authorId !== authorId) throw new ForbiddenException('You can only delete your own posts');
+    if (post.authorId !== authorId && !isAdmin) throw new ForbiddenException('You can only delete your own posts');
 
     await this.prisma.post.delete({ where: this.prisma.tenantWhere({ id }, currentTenantId) });
   }
 
-  async engagement(slug: string, userId: string | undefined, tenantId?: string) {
-    const currentTenantId = this.tenantIdFor(tenantId);
+  async engagement(slug: string, userId: string, tenantId: string) {
     const post = await this.prisma.post.findFirst({
-      where: this.prisma.tenantWhere({ slug, published: true }, currentTenantId),
-      select: { id: true },
+      where: this.prisma.tenantWhere({ slug, published: true }, this.tenantIdFor(tenantId)),
+      select: { id: true, tenantId: true },
     });
     if (!post) throw new NotFoundException('Post not found');
+    const currentTenantId = post.tenantId;
     const [likes, comments] = await this.prisma.$transaction([
       this.prisma.like.count({ where: this.prisma.tenantWhere({ postId: post.id }, currentTenantId) }),
       this.prisma.comment.findMany({
@@ -189,13 +185,11 @@ export class PostsService {
         orderBy: { createdAt: 'desc' },
       }),
     ]);
-    const liked = userId
-      ? Boolean(
-          await this.prisma.like.findUnique({
-            where: { tenantId_userId_postId: { tenantId: currentTenantId, userId, postId: post.id } },
-          }),
-        )
-      : false;
+    const liked = Boolean(
+      await this.prisma.like.findUnique({
+        where: { tenantId_userId_postId: { tenantId: currentTenantId, userId, postId: post.id } },
+      }),
+    );
     return { likes, liked, comments };
   }
 
@@ -235,5 +229,18 @@ export class PostsService {
       data: this.prisma.tenantData({ content, userId, postId: post.id, parentId }, currentTenantId),
       include: { user: { select: { id: true, name: true } } },
     });
+  }
+
+  async deleteComment(slug: string, commentId: string, actor: JwtPayload, tenantId: string): Promise<void> {
+    const currentTenantId = this.tenantIdFor(tenantId);
+    const comment = await this.prisma.comment.findFirst({
+      where: this.prisma.tenantWhere({ id: commentId, post: { slug } }, currentTenantId),
+      select: { id: true, userId: true },
+    });
+    if (!comment) throw new NotFoundException('Comment not found');
+    if (comment.userId !== actor.sub && !isOrgAdmin(actor.orgRole)) {
+      throw new ForbiddenException('You can only delete your own comments');
+    }
+    await this.prisma.comment.delete({ where: { id: comment.id } });
   }
 }
