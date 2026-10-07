@@ -26,10 +26,10 @@ export class McpBridgeController {
 
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
-      select: { tenantId: true },
+      select: { tenantId: true, deactivatedAt: true },
     });
 
-    if (!user) throw new UnauthorizedException('User not found');
+    if (!user || user.deactivatedAt) throw new UnauthorizedException('User not found');
 
     return this.tools.call(body.name, body.arguments ?? {}, userId, user.tenantId);
   }

@@ -16,7 +16,7 @@ export type RemoteToolResult = {
 
 const webSearchTool: RemoteTool = {
   name: 'websearch',
-  description: 'Search the public web and return relevant result links and snippets.',
+  description: 'Query the public web and return relevant result links and snippets.',
   inputSchema: {
     type: 'object',
     properties: {

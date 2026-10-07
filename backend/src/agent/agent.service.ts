@@ -10,28 +10,31 @@ type ChatMessage = {
 
 type ModelResponse = { choices?: Array<{ message?: ChatMessage }> };
 
-const systemPrompt = `You are CrownStack Blog’s writing assistant.
+const systemPrompt = `You are CrownStack Blog’s "Write with AI" assistant.
 
-Your job is to draft and, when asked, save the final blog article for the authenticated author.
+Your job is to research and draft blog articles for the authenticated author. You never save, publish, update, or delete posts: the author reviews the draft and saves it themselves.
 
 Operating rules:
 1. Use the websearch tool first whenever a response depends on current facts, external references, or recent industry context.
-2. If websearch is unavailable, rely only on the provided context and clearly avoid unsupported claims.
-3. Follow the user’s requested topic, tone, structure, format, and target length exactly.
-4. When the user specifies a word count or content_length, treat it as the target length and keep the final article close to that limit.
-5. If websearch is called without maxResults, use 5 automatically and do not ask the user to supply it.
-6. If the user asks to save, publish, or update a blog post, call the correct blog tool only after the final article text is ready.
-7. For blog tool calls, send only the final article content in the content field and include a valid title, excerpt, coverImage, imageAlt, and tags only when the user requested them.
-8. Keep every tool call grounded in the current tenant and user context. Never claim to have created or edited a blog outside the author’s scope.
+2. Only use facts, figures, dates, and URLs that appear in the websearch results. Never invent statistics, sources, or links. If the results do not cover something, leave it out or say it could not be confirmed.
+3. If websearch is unavailable or returns no results, say so briefly and write only what you can support without specific current claims.
+4. Follow the user’s requested topic, tone, structure, format, and target length exactly.
+5. When the user specifies a word count or content_length, treat it as the target length and keep the final article close to that limit.
+6. If websearch is called without maxResults, use 5 automatically and do not ask the user to supply it.
+7. If the user asks you to save or publish, draft the article and remind them to use the Save draft button.
 
 Final-answer rules:
-- Return only the complete article text unless the user explicitly requests explanation, a summary, or separate metadata.
+- Return only the complete article in Markdown unless the user explicitly requests explanation, a summary, or separate metadata.
+- Start the article with a single "# " heading containing its title.
+- Link sources inline using the exact URLs from the websearch results.
 - Do not include search summaries, tool output, JSON blobs, function signatures, or planning notes.
 - Do not say “based on the search results” or describe the tool usage.
-- Do not send partial drafts.
-- Do not place hidden metadata, notes, or commentary inside the article itself.
+- Do not send partial drafts.`;
 
-Write the final article first, then continue with any requested save, publish, update, or delete action.`;
+/** The agent only drafts. Saving is an explicit author action in the UI, so write tools are never offered to the model. */
+const WRITE_TOOLS = new Set(['create_post', 'update_post', 'publish_post', 'delete_post']);
+
+export type AgentDraft = { title: string; content: string };
 
 @Injectable()
 export class AgentService {
@@ -39,14 +42,19 @@ export class AgentService {
 
   constructor(private readonly mcp: McpClientService) {}
 
-  async chat(message: string, userId: string, tenantId: string, requestedTool?: string): Promise<{ message: string; toolCalls: string[] }> {
+  async chat(message: string, userId: string, tenantId: string, requestedTool?: string): Promise<{ message: string; toolCalls: string[]; draft?: AgentDraft }> {
     const baseUrl = (process.env.LOCAL_LLM_BASE_URL ?? 'http://127.0.0.1:11434/v1').replace(/\/$/, '');
     const model = process.env.LOCAL_LLM_MODEL ?? 'llama3.1:8b';
     const shouldUseTools = Boolean(requestedTool) || this.shouldUseTools(message);
     const shouldWriteBlog = this.shouldWriteBlog(message);
     
     this.logger.log(`Agent request for user ${userId} in tenant ${tenantId}; tools=${shouldUseTools ? 'enabled' : 'disabled'}${requestedTool ? `; selected=${requestedTool}` : ''}`);
-    const discoveredTools = shouldUseTools ? (await this.mcp.listTools(userId, tenantId)).tools : [];
+    if (requestedTool && WRITE_TOOLS.has(requestedTool)) {
+      throw new ServiceUnavailableException(`Write with AI cannot call ${requestedTool}; save drafts from the editor instead`);
+    }
+    const discoveredTools = shouldUseTools
+      ? (await this.mcp.listTools(userId, tenantId)).tools.filter((tool) => !WRITE_TOOLS.has(tool.name))
+      : [];
     const remoteTools = requestedTool
       ? discoveredTools.filter((tool) => tool.name === requestedTool)
       : discoveredTools;
@@ -57,12 +65,14 @@ export class AgentService {
       {
         role: 'system',
         content: shouldWriteBlog
-          ? `${systemPrompt}\nThis is a writing request. Research first when useful, then produce a complete, coherent blog article. The final response must contain only the article unless the user explicitly asks for commentary.`
-          : systemPrompt,
+          ? `${systemPrompt}\nToday is ${new Date().toISOString().slice(0, 10)}.\nThis is a writing request. Research first when useful, then produce a complete, coherent blog article. The final response must contain only the article unless the user explicitly asks for commentary.`
+          : `${systemPrompt}\nToday is ${new Date().toISOString().slice(0, 10)}.`,
       },
       { role: 'user', content: message },
     ];
     const toolCalls: string[] = [];
+    // Small local models often skip the search and answer from memory, so research is forced before drafting.
+    const forceSearch = shouldWriteBlog && !requestedTool && remoteTools.some((tool) => tool.name === 'websearch');
 
     for (let round = 0; round < 5; round += 1) {
       const response = await fetch(`${baseUrl}/chat/completions`, {
@@ -77,7 +87,9 @@ export class AgentService {
                 tools: remoteTools.map((tool) => this.openAiTool(tool)),
                 tool_choice: requestedTool
                   ? { type: 'function', function: { name: requestedTool } }
-                  : 'auto',
+                  : forceSearch && round === 0
+                    ? { type: 'function', function: { name: 'websearch' } }
+                    : 'auto',
               }
             : {}),
         }),
@@ -92,7 +104,8 @@ export class AgentService {
       messages.push(assistant);
 
       if (!assistant.tool_calls?.length) {
-        return { message: assistant.content ?? 'I could not produce a response.', toolCalls };
+        const content = assistant.content ?? 'I could not produce a response.';
+        return { message: content, toolCalls, ...(shouldWriteBlog && assistant.content ? { draft: this.toDraft(content, message) } : {}) };
       }
 
       for (const call of assistant.tool_calls) {
@@ -129,6 +142,51 @@ export class AgentService {
     }
 
     return { message: 'I reached the tool-call limit before finishing.', toolCalls };
+  }
+
+  /** Splits the leading "# Title" heading off the article so the UI can save it as a post. */
+  private toDraft(article: string, prompt: string): AgentDraft {
+    const text = article.trim();
+    const heading = text.match(/^#{1,2}\s+(.+)\n?/);
+    const firstLine = text.split('\n', 1)[0].replace(/[#*_`]/g, '').trim();
+    let title = (heading?.[1] ?? firstLine).replace(/[*_`]/g, '').trim();
+    if (title.length < 3) title = prompt.trim();
+    title = title.slice(0, 160);
+    const body = (heading ? text.slice(heading[0].length) : text).trim() || text;
+    return { title, content: this.markdownToHtml(body) };
+  }
+
+  /** Post pages render HTML, so the model's Markdown is escaped and converted to a small, safe subset. */
+  private markdownToHtml(markdown: string): string {
+    const escape = (value: string) =>
+      value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    const inline = (value: string) =>
+      escape(value)
+        .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>')
+        .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+        .replace(/(^|[^*])\*([^*\s][^*]*)\*/g, '$1<em>$2</em>')
+        .replace(/`([^`]+)`/g, '<code>$1</code>');
+
+    return markdown
+      .split(/\n\s*\n/)
+      .map((block) => block.trim())
+      .filter(Boolean)
+      .map((block) => {
+        const heading = block.match(/^(#{1,6})\s+(.+)$/);
+        if (heading) {
+          const level = Math.min(Math.max(heading[1].length, 2), 4);
+          return `<h${level}>${inline(heading[2])}</h${level}>`;
+        }
+        const lines = block.split('\n');
+        if (lines.every((line) => /^\s*[-*]\s+/.test(line))) {
+          return `<ul>${lines.map((line) => `<li>${inline(line.replace(/^\s*[-*]\s+/, ''))}</li>`).join('')}</ul>`;
+        }
+        if (lines.every((line) => /^\s*\d+[.)]\s+/.test(line))) {
+          return `<ol>${lines.map((line) => `<li>${inline(line.replace(/^\s*\d+[.)]\s+/, ''))}</li>`).join('')}</ol>`;
+        }
+        return `<p>${lines.map(inline).join('<br />')}</p>`;
+      })
+      .join('\n');
   }
 
   private openAiTool(tool: RemoteTool) {
