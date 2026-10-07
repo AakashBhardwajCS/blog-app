@@ -1,48 +1,71 @@
 'use client';
 
 import { ChangeEvent, SubmitEvent, useEffect, useState } from 'react';
-import { Pencil, Plus, Trash2, Upload } from 'lucide-react';
+import { Lock, Pencil, Plus, Trash2, Upload } from 'lucide-react';
 import { api, uploadImage } from '../../lib/api';
-import { Post } from '../../lib/types';
+import { Department, departmentLabel, departments } from '../../lib/departments';
+import { Post, Session } from '../../lib/types';
 
-type Draft = { title: string; excerpt: string; content: string; tags: string; published: boolean };
+type Draft = { title: string; excerpt: string; content: string; department: Department; published: boolean };
 
-const initial: Draft = { title: '', excerpt: '', content: '', tags: '', published: false };
+/** New posts are locked to the signed-in user's department (shown read-only, enforced by the API). */
+function initialDraft(): Draft {
+  let department: Department = 'ENGINEERING';
+  try {
+    const user = JSON.parse(localStorage.getItem('blog_user') ?? '{}') as Partial<Session['user']>;
+    if (user.department && departments.includes(user.department)) department = user.department;
+  } catch {
+    // Missing or malformed session: keep the fallback.
+  }
+  return { title: '', excerpt: '', content: '', department, published: false };
+}
 
 const inputStyle =
   'mt-1 w-full rounded-lg border bg-white px-3 py-2.5 text-sm outline-none transition focus:border-brand focus:ring-2 focus:ring-brand/20';
 
 export default function Dashboard(): React.ReactElement {
   const [posts, setPosts] = useState<Post[]>([]);
-  const [draft, setDraft] = useState<Draft>(initial);
+  // Start with a fixed default so server and client render the same markup; the session's
+  // department is applied after mount (localStorage only exists in the browser).
+  const [draft, setDraft] = useState<Draft>({ title: '', excerpt: '', content: '', department: 'ENGINEERING', published: false });
   const [editing, setEditing] = useState<string | null>(null);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [uploading, setUploading] = useState(false);
 
-  const load = async (): Promise<void> => {
+  const load = async (): Promise<Post[]> => {
     const token = typeof window === 'undefined' ? null : localStorage.getItem('blog_token');
     if (!token) {
       location.href = '/login';
-      return;
+      return [];
     }
 
     try {
-      setPosts(await api<Post[]>('/posts/mine/list'));
+      const mine = await api<Post[]>('/posts/mine/list');
+      setPosts(mine);
+      return mine;
     } catch (cause: unknown) {
       if (!localStorage.getItem('blog_token')) {
         location.href = '/login';
-        return;
+        return [];
       }
       setError(cause instanceof Error ? cause.message : 'Could not load your posts');
+      return [];
     }
   };
 
   useEffect(() => {
-    void load();
+    setDraft(initialDraft());
+    // "Edit" in Write with AI links here as /dashboard?edit=<postId>.
+    const editId = new URLSearchParams(window.location.search).get('edit');
+    void load().then((mine) => {
+      const post = editId ? mine.find((item) => item.id === editId) : undefined;
+      if (post) edit(post);
+      else if (editId) setError('That post could not be found in your library');
+    });
   }, []);
 
-  const field = (key: keyof Omit<Draft, 'published'>) => ({
+  const field = (key: keyof Omit<Draft, 'published' | 'department'>) => ({
     value: draft[key],
     onChange: (event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
       setDraft({ ...draft, [key]: event.target.value }),
@@ -52,13 +75,8 @@ export default function Dashboard(): React.ReactElement {
     event.preventDefault();
     setError('');
 
-    const body = {
-      ...draft,
-      tags: draft.tags
-        .split(',')
-        .map((tag) => tag.trim())
-        .filter(Boolean),
-    };
+    // Department is display-only: the API files the post under the author's department and rejects the field.
+    const { department: _department, ...body } = draft;
 
     try {
       await api<Post>(editing ? `/posts/${editing}` : '/posts', {
@@ -66,7 +84,7 @@ export default function Dashboard(): React.ReactElement {
         body: JSON.stringify(body),
       });
 
-      setDraft(initial);
+      setDraft(initialDraft());
       setEditing(null);
       setNotice(editing ? (body.published ? 'Article published' : 'Article edited') : 'Article saved');
       await load();
@@ -108,7 +126,7 @@ export default function Dashboard(): React.ReactElement {
       title: post.title,
       excerpt: post.excerpt ?? '',
       content: post.content,
-      tags: post.tags.join(', '),
+      department: post.department,
       published: post.published,
     });
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -141,7 +159,7 @@ export default function Dashboard(): React.ReactElement {
                 className="text-sm font-medium text-slate-500 hover:text-slate-900"
                 onClick={() => {
                   setEditing(null);
-                  setDraft(initial);
+                  setDraft(initialDraft());
                 }}
               >
                 Cancel
@@ -162,12 +180,12 @@ export default function Dashboard(): React.ReactElement {
               />
             </label>
             <label className="block text-sm font-medium">
-              Tags
-              <input
-                className={inputStyle}
-                {...field('tags')}
-                placeholder="design, technology, ideas"
-              />
+              Department
+              <div className={`${inputStyle} flex cursor-not-allowed items-center justify-between bg-slate-50 text-slate-500`} aria-readonly="true">
+                {departmentLabel(draft.department)}
+                <Lock aria-hidden size={14} />
+              </div>
+              <span className="mt-1 block text-xs font-normal text-slate-500">Articles are filed under your department.</span>
             </label>
             <label className="block text-sm font-medium">
               Content

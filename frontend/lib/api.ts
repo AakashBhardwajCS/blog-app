@@ -1,91 +1,104 @@
-import { Post, PostPage } from './types';
+import { Department } from './departments';
+import { signOut } from './auth';
+import { Post, PostPage, PostSearchResult, User } from './types';
 
 const base = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001/api';
 
-function getTenantIdFromStorage(): string | undefined {
-  const token = typeof window === 'undefined' ? null : localStorage.getItem('blog_token');
-  const rawUser = typeof window === 'undefined' ? null : localStorage.getItem('blog_user');
-
-  if (rawUser) {
-    const parsed = JSON.parse(rawUser) as { tenantId?: string };
-    if (parsed.tenantId) return parsed.tenantId;
-  }
-
-  if (!token) return undefined;
-
-  try {
-    const payload = JSON.parse(atob(token.split('.')[1] ?? '')) as { tenantId?: string };
-    return payload.tenantId;
-  } catch {
-    return undefined;
+/** An API failure with its HTTP status, so pages can tell "signed out" (401) from "not found" (404). */
+export class ApiError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message);
   }
 }
 
-export async function getPosts(): Promise<PostPage> {
-  const response = await fetch(`${base}/posts`, { cache: 'no-store' });
+// Posts are members-only, so the server-rendered pages pass the session token from the cookie.
+function authHeaders(token: string | null | undefined): HeadersInit {
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
 
-  if (!response.ok) throw new Error('Could not load posts');
+export async function getPosts(token: string, department?: Department): Promise<PostPage> {
+  const params = new URLSearchParams({ limit: '50', ...(department ? { department } : {}) });
+  const response = await fetch(`${base}/posts?${params}`, { cache: 'no-store', headers: authHeaders(token) });
+
+  if (!response.ok) throw new ApiError('Could not load posts', response.status);
 
   return response.json() as Promise<PostPage>;
 }
 
-export async function getPost(slug: string): Promise<Post> {
-  const response = await fetch(`${base}/posts/${encodeURIComponent(slug)}`, { cache: 'no-store' });
+/** Hybrid (keyword + semantic) search over the organization's published posts. */
+export async function searchPosts(token: string, query: string, department?: Department): Promise<PostSearchResult> {
+  const params = new URLSearchParams({ q: query, ...(department ? { department } : {}) });
+  const response = await fetch(`${base}/posts/search?${params}`, { cache: 'no-store', headers: authHeaders(token) });
 
-  if (!response.ok) throw new Error('Post not found');
+  if (!response.ok) throw new ApiError('Search failed', response.status);
+
+  return response.json() as Promise<PostSearchResult>;
+}
+
+export async function getPost(token: string, slug: string): Promise<Post> {
+  const response = await fetch(`${base}/posts/${encodeURIComponent(slug)}`, { cache: 'no-store', headers: authHeaders(token) });
+
+  if (!response.ok) throw new ApiError('Post not found', response.status);
 
   return response.json() as Promise<Post>;
 }
 
 export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   const token = typeof window === 'undefined' ? null : localStorage.getItem('blog_token');
-  const tenantId = getTenantIdFromStorage();
-  const isAuthRoute = path.startsWith('/auth/');
 
   const response = await fetch(`${base}${path}`, {
     ...init,
     headers: {
       ...(init.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(!isAuthRoute && tenantId ? { 'x-tenant-id': tenantId } : {}),
+      ...authHeaders(token),
       ...init.headers,
     },
   });
 
   if (!response.ok) {
+    // The token expired or the member was removed from the organization: drop the stale session.
+    if (response.status === 401 && token && !path.startsWith('/auth/')) signOut();
     const body = (await response.json().catch(() => ({ message: 'Request failed' }))) as {
       message?: string | string[];
     };
-    throw new Error(
+    throw new ApiError(
       Array.isArray(body.message) ? body.message.join(', ') : (body.message ?? 'Request failed'),
+      response.status,
     );
   }
 
   return response.json() as Promise<T>;
 }
 
-export async function uploadImage(file: File): Promise<{ url: string; key: string; mimeType: string; size: number }> {
+export function uploadImage(file: File): Promise<{ url: string; key: string; mimeType: string; size: number }> {
+  return uploadFile('/assets/upload', file);
+}
+
+/** Uploads a new profile picture and returns the updated user. */
+export function uploadAvatar(file: File): Promise<User> {
+  return uploadFile('/profile/avatar', file);
+}
+
+/** POSTs one file as multipart `file` with the session's auth header. */
+async function uploadFile<T>(path: string, file: File): Promise<T> {
   const formData = new FormData();
   formData.append('file', file);
 
   const token = typeof window === 'undefined' ? null : localStorage.getItem('blog_token');
-  const tenantId = getTenantIdFromStorage();
 
-  const response = await fetch(`${base}/assets/upload`, {
+  const response = await fetch(`${base}${path}`, {
     method: 'POST',
-    headers: {
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(tenantId ? { 'x-tenant-id': tenantId } : {}),
-    },
+    headers: authHeaders(token),
     body: formData,
   });
 
   if (!response.ok) {
+    if (response.status === 413) throw new Error('That image is too large. Please choose one under 2 MB.');
     const body = (await response.json().catch(() => ({ message: 'Image upload failed' }))) as {
       message?: string | string[];
     };
     throw new Error(Array.isArray(body.message) ? body.message.join(', ') : (body.message ?? 'Image upload failed'));
   }
 
-  return response.json() as Promise<{ url: string; key: string; mimeType: string; size: number }>;
+  return response.json() as Promise<T>;
 }

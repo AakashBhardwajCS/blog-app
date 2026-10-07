@@ -2,18 +2,32 @@
 
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
-import { authChangeEvent, notifyAuthChange } from '../lib/auth';
+import { useRouter } from 'next/navigation';
+import { api } from '../lib/api';
+import { authChangeEvent, getStoredUser, storeUser, syncTokenCookie } from '../lib/auth';
+import type { User } from '../lib/types';
+import { ProfileMenu } from './ProfileMenu';
 import Image from "next/image";
 
 export function Header(): React.ReactElement {
-  const [loggedIn, setLoggedIn] = useState(false);
+  const router = useRouter();
+  // null until mounted / when signed out; refreshed on sign-in, sign-out and profile edits.
+  const [user, setUser] = useState<User | null>(null);
 
   useEffect(() => {
     const updateLoginState = (): void => {
-      setLoggedIn(Boolean(localStorage.getItem('blog_token')));
+      setUser(getStoredUser());
     };
 
     updateLoginState();
+    // Older sessions have no token cookie, so server-rendered pages saw them as signed out.
+    if (syncTokenCookie()) router.refresh();
+    // The stored user can be stale (older sessions lack role/department/avatar/organization), so refresh it once.
+    if (getStoredUser()) {
+      api<User>('/profile')
+        .then(storeUser)
+        .catch(() => undefined);
+    }
     window.addEventListener(authChangeEvent, updateLoginState);
     window.addEventListener('storage', updateLoginState);
 
@@ -45,25 +59,15 @@ export function Header(): React.ReactElement {
           <Link className="hidden hover:text-brand sm:block" href="/">
             Explore
           </Link>
-          {loggedIn ? (
+          {user ? (
             <>
               <Link className="hover:text-brand" href="/dashboard">
                 Dashboard
               </Link>
               <Link className="hover:text-brand" href="/assistant">
-                Assistant
+                Write with AI
               </Link>
-              <button
-                className="rounded-lg px-3 py-2 hover:bg-slate-100"
-                onClick={() => {
-                  localStorage.removeItem('blog_token');
-                  localStorage.removeItem('blog_user');
-                  notifyAuthChange();
-                  window.location.href = '/';
-                }}
-              >
-                Sign out
-              </button>
+              <ProfileMenu user={user} />
             </>
           ) : (
             <>

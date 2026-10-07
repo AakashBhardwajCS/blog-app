@@ -1,6 +1,6 @@
 'use client';
 
-import { FormEvent, useState } from 'react';
+import { FormEvent, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { BookOpen, ChevronDown, LoaderCircle, Send, Sparkles, X } from 'lucide-react';
 
@@ -16,6 +16,12 @@ export function RagAssistant(): React.ReactElement {
   const [busy, setBusy] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [error, setError] = useState('');
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  // Keep the newest message in view; the panel has a fixed size and only this list scrolls.
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
+  }, [messages, busy]);
 
   async function ask(event?: FormEvent): Promise<void> {
     event?.preventDefault();
@@ -56,15 +62,15 @@ export function RagAssistant(): React.ReactElement {
   return (
     <>
       {open && (
-        <section className="fixed bottom-24 right-5 z-50 flex w-[min( calc(100vw-2.5rem),390px)] flex-col overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-2xl shadow-slate-900/20 sm:right-7" aria-label="CrownStack knowledge assistant">
-          <header className="flex items-center justify-between bg-slate-950 px-5 py-4 text-white">
+        <section className="fixed bottom-24 right-5 z-50 flex h-[min(calc(100dvh-8rem),560px)] w-[min(calc(100vw-2.5rem),390px)] flex-col overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-2xl shadow-slate-900/20 sm:right-7" aria-label="CrownStack knowledge assistant">
+          <header className="flex shrink-0 items-center justify-between bg-slate-950 px-5 py-4 text-white">
             <div className="flex items-center gap-3">
               <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-brand"><Sparkles size={17} /></span>
-              <div><p className="font-semibold">Knowledge assistant</p><p className="text-xs text-slate-300">Search the published blogs and articles</p></div>
+              <div><p className="font-semibold">Knowledge assistant</p><p className="text-xs text-slate-300">Query the published blogs and articles</p></div>
             </div>
             <button aria-label="Close assistant" className="rounded-lg p-2 text-slate-300 hover:bg-white/10 hover:text-white" onClick={() => setOpen(false)} type="button"><X size={18} /></button>
           </header>
-          <div className="max-h-[min(60vh,480px)] space-y-4 overflow-y-auto p-4">
+          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain p-4" ref={scrollRef}>
             {messages.length === 0 && (
               <div className="rounded-2xl bg-slate-50 p-4">
                 <p className="text-sm font-semibold text-slate-900">Ask about the platform or find a blog.</p>
@@ -75,7 +81,7 @@ export function RagAssistant(): React.ReactElement {
             )}
             {messages.map((message, index) => (
               <div className={message.role === 'user' ? 'ml-8' : 'mr-4'} key={`${message.role}-${index}`}>
-                <div className={`whitespace-pre-wrap rounded-2xl px-4 py-3 text-sm leading-6 ${message.role === 'user' ? 'bg-brand text-white' : 'bg-slate-100 text-slate-700'}`}>{message.text}</div>
+                <div className={`whitespace-pre-wrap break-words rounded-2xl px-4 py-3 text-sm leading-6 ${message.role === 'user' ? 'bg-brand text-white' : 'bg-slate-100 text-slate-700'}`}>{message.text}</div>
                 {message.role === 'assistant' && message.sources && message.sources.length > 0 && (
                   <div className="mt-2 space-y-1.5">
                     <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Sources · {message.mode}</p>
@@ -86,8 +92,8 @@ export function RagAssistant(): React.ReactElement {
             ))}
             {busy && <div className="flex items-center gap-2 text-sm text-slate-400"><LoaderCircle className="animate-spin" size={15} /> Searching the knowledge base...</div>}
           </div>
-          {error && <p className="px-4 pb-2 text-xs text-red-600">{error}</p>}
-          <form className="border-t border-slate-100 p-3" onSubmit={(event) => void ask(event)}>
+          {error && <p className="shrink-0 px-4 pb-2 text-xs text-red-600">{error}</p>}
+          <form className="shrink-0 border-t border-slate-100 p-3" onSubmit={(event) => void ask(event)}>
             <div className="flex items-end gap-2 rounded-2xl border border-slate-200 bg-slate-50 p-2 focus-within:border-brand focus-within:ring-2 focus-within:ring-brand/20">
               <textarea aria-label="Ask the knowledge assistant" className="min-h-10 flex-1 resize-none bg-transparent px-2 py-2 text-sm text-slate-800 outline-none placeholder:text-slate-400" disabled={busy} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void ask(); } }} placeholder="Ask or search blogs..." value={query} />
               <button aria-label="Ask assistant" className="rounded-xl bg-brand p-2.5 text-white transition hover:bg-brand-dark disabled:opacity-40" disabled={busy || !query.trim()} type="submit"><Send size={16} /></button>

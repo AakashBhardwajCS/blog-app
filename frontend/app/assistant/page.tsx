@@ -1,11 +1,17 @@
 'use client';
 
 import { FormEvent, useEffect, useState } from 'react';
-import { Send, Sparkles, Wrench } from 'lucide-react';
+import Link from 'next/link';
+import { Pencil, Save, Send, Sparkles, Wrench } from 'lucide-react';
 import { api } from '../../lib/api';
+import { Post } from '../../lib/types';
 
-type Message = { role: 'user' | 'assistant'; content: string; tools?: string[] };
-type AgentResponse = { message: string; toolCalls: string[] };
+type Draft = { title: string; content: string };
+type Message = { role: 'user' | 'assistant'; content: string; tools?: string[]; draft?: Draft; savedPostId?: string; saving?: boolean };
+type AgentResponse = { message: string; toolCalls: string[]; draft?: Draft };
+
+/** Write with AI only drafts; posts are saved explicitly with the Save draft button. */
+const WRITE_TOOLS = new Set(['create_post', 'update_post', 'publish_post', 'delete_post']);
 type Tool = { name: string; description: string; inputSchema: Record<string, unknown> };
 type ToolResult = { content: Array<{ type: string; text: string }>; isError?: boolean };
 
@@ -78,7 +84,7 @@ export default function AssistantPage(): React.ReactElement {
       });
       setMessages((current) => [
         ...current,
-        { role: 'assistant', content: result.message, tools: result.toolCalls },
+        { role: 'assistant', content: result.message, tools: result.toolCalls, draft: result.draft },
       ]);
     } catch (cause: unknown) {
       setError(cause instanceof Error ? cause.message : 'The assistant could not respond');
@@ -87,14 +93,31 @@ export default function AssistantPage(): React.ReactElement {
     }
   }
 
+  async function saveDraft(index: number): Promise<void> {
+    const draft = messages[index]?.draft;
+    if (!draft) return;
+    setError('');
+    setMessages((current) => current.map((message, i) => (i === index ? { ...message, saving: true } : message)));
+    try {
+      const post = await api<Post>('/posts', {
+        method: 'POST',
+        body: JSON.stringify({ title: draft.title, content: draft.content, published: false }),
+      });
+      setMessages((current) => current.map((message, i) => (i === index ? { ...message, saving: false, savedPostId: post.id } : message)));
+    } catch (cause: unknown) {
+      setMessages((current) => current.map((message, i) => (i === index ? { ...message, saving: false } : message)));
+      setError(cause instanceof Error ? cause.message : 'Could not save draft');
+    }
+  }
+
   return (
     <div className="mx-auto max-w-3xl">
       <div className="mb-8">
         <p className="flex items-center gap-2 text-sm font-semibold uppercase tracking-[.15em] text-brand">
-          <Sparkles size={16} /> Writing assistant
+          <Sparkles size={16} /> Write with AI
         </p>
-        <h1 className="mt-2">Work with your blog</h1>
-        <p className="mt-2 text-slate-600">Ask the connected MCP tools to research, create, edit, or delete blog content.</p>
+        <h1 className="mt-2">Draft an article with AI</h1>
+        <p className="mt-2 text-slate-600">Describe what to write. The AI researches the topic and drafts it; nothing is saved until you choose Save draft.</p>
         <button
           className="mt-4 inline-flex items-center gap-2 rounded-lg border bg-white px-3 py-2 text-sm font-semibold text-slate-700 shadow-sm hover:border-brand hover:text-brand"
           onClick={() => { const next = !showTools; setShowTools(next); if (next) void loadTools(); }}
@@ -110,7 +133,7 @@ export default function AssistantPage(): React.ReactElement {
             value={llmTool}
           >
             <option value="">Automatic tool choice</option>
-            {tools.map((tool) => <option key={tool.name} value={tool.name}>{tool.name}</option>)}
+            {tools.filter((tool) => !WRITE_TOOLS.has(tool.name)).map((tool) => <option key={tool.name} value={tool.name}>{tool.name}</option>)}
           </select>
           <span className="mt-1 block text-xs font-normal text-slate-500">
             Leave automatic to let the model decide whether and which tool to use.
@@ -152,17 +175,41 @@ export default function AssistantPage(): React.ReactElement {
           {messages.length === 0 && (
             <div className="flex min-h-[320px] flex-col justify-center">
               <Sparkles className="text-brand" size={24} />
-              <h2 className="mt-5 text-2xl font-bold text-slate-900">What should we work on?</h2>
-              <p className="mt-2 text-slate-600">Your request will be handled by the local model and tools exposed by the MCP server.</p>
+              <h2 className="mt-5 text-2xl font-bold text-slate-900">What should we write?</h2>
+              <p className="mt-2 text-slate-600">The AI searches the web for current sources, then drafts the article for you to review.</p>
             </div>
           )}
           {messages.map((message, index) => (
             <div className={message.role === 'user' ? 'ml-auto max-w-[85%]' : 'max-w-[90%]'} key={`${message.role}-${index}`}>
-              <div className={`rounded-2xl px-4 py-3 text-sm leading-6 ${message.role === 'user' ? 'bg-brand text-white' : 'bg-slate-50 text-slate-700'}`}>
+              <div className={`whitespace-pre-wrap rounded-2xl px-4 py-3 text-sm leading-6 ${message.role === 'user' ? 'bg-brand text-white' : 'bg-slate-50 text-slate-700'}`}>
                 {message.content}
               </div>
               {message.tools && message.tools.length > 0 && (
                 <p className="mt-2 flex items-center gap-1.5 text-xs text-slate-400"><Wrench size={12} /> Used {message.tools.join(', ')}</p>
+              )}
+              {message.draft && (
+                <div className="mt-3 flex flex-wrap items-center gap-3">
+                  {message.savedPostId ? (
+                    <>
+                      <span className="text-xs font-medium text-emerald-700">Saved as draft</span>
+                      <Link
+                        className="inline-flex items-center gap-2 rounded-lg border bg-white px-3 py-2 text-sm font-semibold text-slate-700 shadow-sm hover:border-brand hover:text-brand"
+                        href={`/dashboard?edit=${encodeURIComponent(message.savedPostId)}`}
+                      >
+                        <Pencil size={14} /> Edit
+                      </Link>
+                    </>
+                  ) : (
+                    <button
+                      className="inline-flex items-center gap-2 rounded-lg bg-brand px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-brand-dark disabled:opacity-50"
+                      disabled={message.saving}
+                      onClick={() => void saveDraft(index)}
+                      type="button"
+                    >
+                      <Save size={14} /> {message.saving ? 'Saving...' : 'Save draft'}
+                    </button>
+                  )}
+                </div>
               )}
             </div>
           ))}
@@ -177,7 +224,7 @@ export default function AssistantPage(): React.ReactElement {
             onKeyDown={(event) => {
               if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void send(); }
             }}
-            placeholder="Ask the agent..."
+            placeholder="e.g. Write a 600-word article on the latest UPI news in India"
             value={input}
           />
           <button aria-label="Send message" className="rounded-xl bg-brand p-3 text-white disabled:opacity-50" disabled={busy || !input.trim()} type="submit">
