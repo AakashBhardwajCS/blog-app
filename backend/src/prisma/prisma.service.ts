@@ -1,31 +1,24 @@
 import { ForbiddenException, Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
-import { TenantContextService } from '../tenant/tenant-context.service';
 
 @Injectable()
 export class PrismaService extends PrismaClient implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(PrismaService.name);
 
-  constructor(private readonly tenantContext: TenantContextService) {
-    super();
-  }
-
   tenantData<T extends Record<string, unknown>>(data: T, tenantId?: string): T & { tenantId: string } {
-    const resolvedTenantId = tenantId ?? this.tenantContext.getCurrentTenantId() ?? this.tenantContext.requireCurrentTenantId();
-    return { ...data, tenantId: resolvedTenantId } as T & { tenantId: string };
+    return { ...data, tenantId: this.requireTenant(tenantId) } as T & { tenantId: string };
   }
 
   tenantWhere<T extends Record<string, unknown>>(where: T | undefined, tenantId?: string): T & { tenantId: string } {
-    const resolvedTenantId = tenantId ?? this.tenantContext.getCurrentTenantId() ?? this.tenantContext.requireCurrentTenantId();
-    return { ...(where ?? {}), tenantId: resolvedTenantId } as T & { tenantId: string };
+    return { ...(where ?? {}), tenantId: this.requireTenant(tenantId) } as T & { tenantId: string };
   }
 
+  /** Fails closed: a query without a tenant would otherwise span every organization. */
   requireTenant(tenantId?: string): string {
-    const resolvedTenantId = tenantId ?? this.tenantContext.getCurrentTenantId();
-    if (!resolvedTenantId) {
+    if (!tenantId) {
       throw new ForbiddenException('Tenant context is missing');
     }
-    return resolvedTenantId;
+    return tenantId;
   }
 
   async onModuleInit(): Promise<void> {
