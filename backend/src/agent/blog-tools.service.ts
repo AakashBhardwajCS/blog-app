@@ -21,8 +21,6 @@ const requiredText = (args: ToolArguments, key: string): string => {
   if (!value) throw new BadRequestException(`${key} is required`);
   return value;
 };
-const tags = (value: unknown): string[] | undefined =>
-  Array.isArray(value) && value.every((item) => typeof item === 'string') ? value : undefined;
 
 @Injectable()
 export class BlogToolsService {
@@ -49,7 +47,7 @@ export class BlogToolsService {
       },
       {
         name: 'create_post',
-        description: 'Create a draft or published blog post for the authenticated author.',
+        description: "Create a draft or published blog post for the authenticated author. It is filed under the author's department automatically.",
         inputSchema: {
           type: 'object',
           properties: {
@@ -58,7 +56,6 @@ export class BlogToolsService {
             content: { type: 'string', minLength: 1, maxLength: 50000 },
             coverImage: { type: 'string', maxLength: 2048 },
             imageAlt: { type: 'string', maxLength: 255 },
-            tags: { type: 'array', items: { type: 'string' } },
             published: { type: 'boolean' },
           },
           required: ['title', 'content'],
@@ -77,7 +74,6 @@ export class BlogToolsService {
             content: { type: 'string', minLength: 1, maxLength: 50000 },
             coverImage: { type: 'string', maxLength: 2048 },
             imageAlt: { type: 'string', maxLength: 255 },
-            tags: { type: 'array', items: { type: 'string' } },
           },
           required: ['id'],
           additionalProperties: false,
@@ -124,7 +120,6 @@ export class BlogToolsService {
             content: requiredText(args, 'content'),
             coverImage: optionalText(args.coverImage),
             imageAlt: optionalText(args.imageAlt),
-            tags: tags(args.tags),
             published: args.published === true,
           }, tenantId);
           break;
@@ -135,7 +130,6 @@ export class BlogToolsService {
             content: optionalText(args.content),
             coverImage: optionalText(args.coverImage),
             imageAlt: optionalText(args.imageAlt),
-            tags: tags(args.tags),
           }, tenantId);
           break;
         case 'publish_post':
